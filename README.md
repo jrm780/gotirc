@@ -1,4 +1,6 @@
 # gotirc
+![](https://travis-ci.org/jrm780/gotirc.svg?branch=master)
+
 A Twitch.tv IRC library written in Go
 
 Message parsing (as indicated to be roughly based on RFC 1459 by [Twitch](https://dev.twitch.tv/docs/irc) has been implemented in message.go.
