@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 const username = "TEST_NAME"
@@ -21,7 +22,7 @@ func TestConnect(t *testing.T) {
 		defer wg.Done()
 
 		c := NewClient(Options{})
-		err := c.doPostConnect(username, password, client)
+		err := c.doPostConnect(username, password, client, 10, 1)
 		if err != nil {
 			t.Errorf("Expected 'nil', got %s", err)
 		}
@@ -61,7 +62,7 @@ func TestFailedConnect(t *testing.T) {
 		defer wg.Done()
 
 		c := NewClient(Options{})
-		err := c.doPostConnect(username, password, client)
+		err := c.doPostConnect(username, password, client, 10, 1)
 		if err == nil {
 			t.Errorf("Expected 'non-nil error', got %s", err)
 		}
@@ -89,7 +90,7 @@ func TestJoin(t *testing.T) {
 		defer wg.Done()
 
 		c := NewClient(Options{Channels: []string{"test_channel1", "test_channel2"}})
-		err := c.doPostConnect(username, password, client)
+		err := c.doPostConnect(username, password, client, 10, 1)
 		if err != nil {
 			t.Errorf("Expected 'nil', got %s", err)
 		}
@@ -112,6 +113,47 @@ func TestJoin(t *testing.T) {
 	}
 	// out.WriteString(":x!x@x.tmi.twitch.tv JOIN #test_channel2\r\n")
 	// out.Flush()
+
+	server.Close()
+	wg.Wait()
+}
+
+func TestSendRateLimit(t *testing.T) {
+	client, server := net.Pipe()
+	var wg sync.WaitGroup
+	maxBurst := 10
+	perSeconds := 2
+
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+
+		c := NewClient(Options{})
+		err := c.doPostConnect(username, password, client, float64(maxBurst), float64(perSeconds))
+		if err != nil {
+			t.Errorf("Expected 'nil', got %s", err)
+		}
+
+		for i := 0; i < maxBurst*2; i++ {
+			c.send("%d", i)
+		}
+	}()
+
+	in := bufio.NewReader(server)
+	out := bufio.NewWriter(server)
+	doAuthHandshake(in, out)
+
+	recv := make([]time.Time, maxBurst*2)
+	for i := 0; i < maxBurst*2; i++ {
+		in.ReadString('\n')
+		recv[i] = time.Now()
+	}
+
+	delta := recv[len(recv)-1].Sub(recv[0])
+	minTime := time.Duration(perSeconds) * time.Second
+	if delta < minTime {
+		t.Errorf("Expected delta > %s, got %s (%s - %s)", minTime, delta, recv[len(recv)-1], recv[0])
+	}
 
 	server.Close()
 	wg.Wait()

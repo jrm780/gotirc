@@ -54,7 +54,7 @@ func (c *Client) Connect(nick string, pass string) error {
 		return err
 	}
 
-	err = c.doPostConnect(nick, pass, conn)
+	err = c.doPostConnect(nick, pass, conn, 19, 30)
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (c *Client) Connect(nick string, pass string) error {
 	return nil
 }
 
-func (c *Client) doPostConnect(nick, pass string, conn net.Conn) error {
+func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, perSeconds float64) error {
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
 
@@ -74,7 +74,7 @@ func (c *Client) doPostConnect(nick, pass string, conn net.Conn) error {
 		c.Join(channel)
 	}
 
-	go c.startSendLoop()
+	go c.startSendLoop(maxMessages, perSeconds)
 
 	return nil
 }
@@ -163,9 +163,7 @@ func (c *Client) log(format string, v ...interface{}) {
 	}
 }
 
-func (c *Client) startSendLoop() {
-	maxMessages := 19.0
-	perSeconds := 30.0
+func (c *Client) startSendLoop(maxMessages, perSeconds float64) {
 	tokens := maxMessages
 	lastTick := time.Now()
 
@@ -191,5 +189,7 @@ func (c *Client) startSendLoop() {
 			c.log("ERROR sending: %s", err)
 			return
 		}
+
+		tokens--
 	}
 }
