@@ -2,6 +2,7 @@ package gotirc
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"net"
 	"strings"
@@ -13,16 +14,23 @@ import (
 const username = "TEST_NAME"
 const password = "TEST_PASS"
 
-func TestConnect(t *testing.T) {
-	client, server := net.Pipe()
-	var wg sync.WaitGroup
+func createClientServer() (*Client, net.Conn) {
+	var client Client
+	var server net.Conn
+	client.conn, server = net.Pipe()
+	client.reader = bufio.NewReader(client.conn)
+	client.writer = bufio.NewWriter(client.conn)
+	return &client, server
+}
 
+func TestAuthenticate(t *testing.T) {
+	var wg sync.WaitGroup
+	client, server := createClientServer()
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
 
-		c := NewClient(Options{})
-		err := c.doPostConnect(username, password, client, 10, 1)
+		err := client.authenticate(username, password)
 		if err != nil {
 			t.Errorf("Expected 'nil', got %s", err)
 		}
@@ -53,18 +61,16 @@ func TestConnect(t *testing.T) {
 	wg.Wait()
 }
 
-func TestFailedConnect(t *testing.T) {
-	client, server := net.Pipe()
+func TestFailedAuthenticate(t *testing.T) {
 	var wg sync.WaitGroup
-
+	client, server := createClientServer()
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
 
-		c := NewClient(Options{})
-		err := c.doPostConnect(username, password, client, 10, 1)
+		err := client.authenticate(username, password)
 		if err == nil {
-			t.Errorf("Expected 'non-nil error', got %s", err)
+			t.Errorf("Expected 'error', got %s", err)
 		}
 	}()
 
@@ -81,71 +87,116 @@ func TestFailedConnect(t *testing.T) {
 	wg.Wait()
 }
 
-func TestJoin(t *testing.T) {
-	client, server := net.Pipe()
-	var wg sync.WaitGroup
+func TestSend(t *testing.T) {
+	test := "test\n"
+	client := NewClient(Options{})
+	client.send(test)
+	client.send("%s", test)
 
+	select {
+	case data := <-client.sendQueue:
+		if data != test {
+			t.Errorf("Expected '%s', got '%s'", test, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+
+	select {
+	case data := <-client.sendQueue:
+		if data != test {
+			t.Errorf("Expected '%s', got '%s'", test, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+
+	for i := 0; i <= sendBufferSize; i++ {
+		client.send(test)
+	}
+	if len(client.sendQueue) != sendBufferSize {
+		t.Errorf("Expected '%d', got '%d'", sendBufferSize, len(client.sendQueue))
+	}
+}
+
+func TestWrite(t *testing.T) {
+	expect := "test\n"
+	var wg sync.WaitGroup
+	client, server := createClientServer()
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
 
-		c := NewClient(Options{Channels: []string{"test_channel1", "test_channel2"}})
-		err := c.doPostConnect(username, password, client, 10, 1)
-		if err != nil {
+		if err := client.write(expect); err != nil {
 			t.Errorf("Expected 'nil', got %s", err)
+		}
+		if err := client.write(expect); err == nil {
+			t.Errorf("Expected 'non-nil', got nil")
 		}
 	}()
 
 	in := bufio.NewReader(server)
-	out := bufio.NewWriter(server)
-	doAuthHandshake(in, out)
 
 	line, _ := in.ReadString('\n')
-	if line != "JOIN #test_channel1\r\n" {
-		t.Errorf("Expected 'JOIN #test_channel1\r\n', got %s", line)
+	if line != expect {
+		t.Errorf("Expected '%s', got '%s'", expect, line)
 	}
-	// out.WriteString(":x!x@x.tmi.twitch.tv JOIN #test_channel1\r\n")
-	// out.Flush()
-
-	line, _ = in.ReadString('\n')
-	if line != "JOIN #test_channel2\r\n" {
-		t.Errorf("Expected 'JOIN #test_channel2\r\n', got %s", line)
-	}
-	// out.WriteString(":x!x@x.tmi.twitch.tv JOIN #test_channel2\r\n")
-	// out.Flush()
 
 	server.Close()
 	wg.Wait()
 }
 
-func TestSendRateLimit(t *testing.T) {
-	client, server := net.Pipe()
-	var wg sync.WaitGroup
+func TestJoin(t *testing.T) {
+	channel1 := "test1"
+	channel2 := "#test2"
+	client := NewClient(Options{})
+	client.Join(channel1)
+	client.Join(channel2)
+
+	select {
+	case data := <-client.sendQueue:
+		expect := "JOIN #" + channel1
+		if data != expect {
+			t.Errorf("Expected '%s', got '%s'", expect, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+
+	select {
+	case data := <-client.sendQueue:
+		expect := "JOIN " + channel2
+		if data != expect {
+			t.Errorf("Expected '%s', got '%s'", expect, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+}
+
+func TestSendLoop(t *testing.T) {
 	maxBurst := 10
 	perSeconds := 2
-
+	var wg sync.WaitGroup
+	client, server := createClientServer()
+	client.sendQueue = make(chan string, sendBufferSize)
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
 
-		c := NewClient(Options{})
-		err := c.doPostConnect(username, password, client, float64(maxBurst), float64(perSeconds))
-		if err != nil {
-			t.Errorf("Expected 'nil', got %s", err)
-		}
-
-		for i := 0; i < maxBurst*2; i++ {
-			c.send("%d", i)
-		}
+		client.startSendLoop(float64(maxBurst), float64(perSeconds))
 	}()
 
 	in := bufio.NewReader(server)
-	out := bufio.NewWriter(server)
-	doAuthHandshake(in, out)
 
+	for i := 0; i < maxBurst*2; i++ {
+		client.send("%d", i)
+	}
+
+	data := make([]string, maxBurst*2)
 	recv := make([]time.Time, maxBurst*2)
 	for i := 0; i < maxBurst*2; i++ {
-		in.ReadString('\n')
+		data[i], _ = in.ReadString('\n')
 		recv[i] = time.Now()
 	}
 
@@ -155,14 +206,188 @@ func TestSendRateLimit(t *testing.T) {
 		t.Errorf("Expected delta > %s, got %s (%s - %s)", minTime, delta, recv[len(recv)-1], recv[0])
 	}
 
+	for i := 0; i < maxBurst*2; i++ {
+		expected := fmt.Sprintf("%d\r\n", i)
+		if data[i] != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, data[i])
+		}
+	}
+
+	// If server has closed connection, the send loop should terminate
+	server.Close()
+	client.send("X")
+
+	wg.Wait()
+}
+
+func TestEndRecvLoop(t *testing.T) {
+	var wg sync.WaitGroup
+	client, server := createClientServer()
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+
+		err := client.startRecvLoop()
+		if err == nil {
+			t.Errorf("Expected 'non-nil' error, got nil")
+		}
+	}()
+
+	out := bufio.NewWriter(server)
+	out.WriteString("test\r\n")
+	out.Flush()
+
 	server.Close()
 	wg.Wait()
 }
 
-func doAuthHandshake(in *bufio.Reader, out *bufio.Writer) {
-	in.ReadString('\n') // nick
-	in.ReadString('\n') // pass
-	out.WriteString(":tmi.twitch.tv 001 " + username + " :Welcome, GLHF!\r\n")
-	out.Flush()
-	in.ReadString('\n') // caps
+func TestTimeoutRecvLoop(t *testing.T) {
+	var wg sync.WaitGroup
+	client, server := createClientServer()
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+
+		client.readTimeout = 100 * time.Millisecond
+		err := client.startRecvLoop()
+		if err == nil {
+			t.Errorf("Expected 'non-nil' error, got nil")
+		}
+	}()
+	wg.Wait()
+	server.Close()
+}
+
+func TestOnJoin(t *testing.T) {
+	client := NewClient(Options{})
+	expectedNick := "test_nick"
+	expectedChan := "#test"
+	var gotChan string
+	var gotNick string
+	client.OnJoin(func(channel, nick string) {
+		gotChan, gotNick = channel, nick
+	})
+	client.doCallbacks(fmt.Sprintf(":%s!%s@%s.tmi.twitch.tv JOIN %s\r\n",
+		expectedNick, expectedNick, expectedNick, expectedChan))
+
+	if expectedNick != gotNick {
+		t.Errorf("Expected '%s', got '%s'", expectedNick, gotNick)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+}
+
+func TestOnChat(t *testing.T) {
+	client := NewClient(Options{})
+	expectedChan := "#test"
+	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1"}
+	expectedMsg := "Test message!"
+	var gotChan string
+	var gotTags map[string]string
+	var gotMsg string
+	client.OnChat(func(channel string, tags map[string]string, msg string) {
+		gotChan = channel
+		gotTags = tags
+		gotMsg = msg
+	})
+
+	line := createPrivMsg(expectedChan, expectedMsg, expectedTags)
+	client.doCallbacks(line)
+
+	if expectedMsg != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+}
+
+func TestOnAction(t *testing.T) {
+	client := NewClient(Options{})
+	expectedChan := "#test"
+	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1"}
+	expectedMsg := "Test message!"
+	var gotChan string
+	var gotTags map[string]string
+	var gotMsg string
+	client.OnAction(func(channel string, tags map[string]string, msg string) {
+		gotChan = channel
+		gotTags = tags
+		gotMsg = msg
+	})
+
+	line := createPrivMsg(expectedChan, "\u0001ACTION"+expectedMsg, expectedTags)
+	client.doCallbacks(line)
+
+	if expectedMsg != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+}
+
+func TestOnCheer(t *testing.T) {
+	client := NewClient(Options{})
+	expectedChan := "#test"
+	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1", "bits": "100"}
+	expectedMsg := "Test message!"
+	var gotChan string
+	var gotTags map[string]string
+	var gotMsg string
+	client.OnCheer(func(channel string, tags map[string]string, msg string) {
+		gotChan = channel
+		gotTags = tags
+		gotMsg = msg
+	})
+
+	line := createPrivMsg(expectedChan, expectedMsg, expectedTags)
+	client.doCallbacks(line)
+
+	if expectedMsg != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+}
+
+func createPrivMsg(channel, msg string, tags map[string]string) string {
+	var data bytes.Buffer
+	data.WriteRune('@')
+	size := 1
+	for k, v := range tags {
+		n, _ := data.WriteString(k)
+		size += n
+		n, _ = data.WriteRune('=')
+		size += n
+		n, _ = data.WriteString(v)
+		size += n
+		n, _ = data.WriteRune(';')
+		size += n
+	}
+	size--
+	data.Truncate(size)
+	data.WriteString(" :x!x@x.tmi.twitch.tv PRIVMSG ")
+	data.WriteString(channel)
+	data.WriteString(" :")
+	data.WriteString(msg)
+	data.WriteString("\r\n")
+	return data.String()
 }

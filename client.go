@@ -31,20 +31,24 @@ type Client struct {
 	reader      *bufio.Reader
 	writer      *bufio.Writer
 
-	conn net.Conn
+	conn        net.Conn
+	readTimeout time.Duration
 
 	callbackMu            sync.Mutex
+	actionCallbacks       []func(channel string, tags map[string]string, msg string)
 	chatCallbacks         []func(channel string, tags map[string]string, msg string)
 	resubCallbacks        []func(channel string, tags map[string]string, msg string)
 	subscriptionCallbacks []func(channel string, tags map[string]string, msg string)
 	cheerCallbacks        []func(channel string, tags map[string]string, msg string)
+	joinCallbacks         []func(channel, username string)
 }
 
 // NewClient returns a new Client
 func NewClient(o Options) *Client {
 	return &Client{
-		options:   o,
-		sendQueue: make(chan string, sendBufferSize),
+		options:     o,
+		sendQueue:   make(chan string, sendBufferSize),
+		readTimeout: 10 * time.Minute,
 	}
 }
 
@@ -76,7 +80,13 @@ func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, pe
 
 	go c.startSendLoop(maxMessages, perSeconds)
 
-	return nil
+	return c.startRecvLoop()
+}
+
+func (c *Client) OnAction(callback func(channel string, tags map[string]string, msg string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.actionCallbacks = append(c.actionCallbacks, callback)
 }
 
 func (c *Client) OnChat(callback func(channel string, tags map[string]string, msg string)) {
@@ -101,6 +111,12 @@ func (c *Client) OnCheer(callback func(channel string, tags map[string]string, m
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.cheerCallbacks = append(c.cheerCallbacks, callback)
+}
+
+func (c *Client) OnJoin(callback func(channel, username string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.joinCallbacks = append(c.joinCallbacks, callback)
 }
 
 func (c *Client) Join(channel string) {
@@ -191,5 +207,80 @@ func (c *Client) startSendLoop(maxMessages, perSeconds float64) {
 		}
 
 		tokens--
+	}
+}
+
+func (c *Client) startRecvLoop() error {
+	for {
+		c.conn.SetReadDeadline(time.Now().Add(c.readTimeout))
+		line, err := c.reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		c.log("> %s", line)
+		c.doCallbacks(line)
+	}
+}
+
+func (c *Client) doCallbacks(line string) {
+	msg := NewMessage(line)
+	if msg.Command == "PRIVMSG" {
+		var m string
+		if len(msg.Params) > 1 {
+			m = msg.Params[1]
+		}
+
+		if strings.HasPrefix(m, "\u0001ACTION") {
+			c.doActionCallbacks(&msg)
+		} else {
+			if _, cheered := msg.Tags["bits"]; cheered {
+				c.doCheerCallbacks(&msg)
+			} else {
+				c.doChatCallbacks(&msg)
+			}
+		}
+	} else if msg.Command == "JOIN" {
+		c.doJoinCallbacks(&msg)
+	}
+}
+
+func (c *Client) doCheerCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.cheerCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Tags, msg.Params[1])
+	}
+}
+
+func (c *Client) doActionCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.actionCallbacks
+	c.callbackMu.Unlock()
+
+	m := msg.Params[1]
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Tags, m[7:])
+	}
+}
+
+func (c *Client) doChatCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.chatCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Tags, msg.Params[1])
+	}
+}
+
+func (c *Client) doJoinCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.joinCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Prefix.Nick)
 	}
 }
