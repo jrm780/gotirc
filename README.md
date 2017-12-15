@@ -1,5 +1,5 @@
 # gotirc
-![](https://travis-ci.org/jrm780/gotirc.svg?branch=master)
+![](https://travis-ci.org/jrm780/gotirc.svg?branch=master) [![](https://coveralls.io/repos/github/jrm780/gotirc/badge.svg)](https://coveralls.io/github/jrm780/gotirc)
 
 A Twitch.tv IRC library written in Go
 
