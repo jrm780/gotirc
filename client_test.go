@@ -90,6 +90,7 @@ func TestFailedAuthenticate(t *testing.T) {
 func TestSend(t *testing.T) {
 	test := "test\n"
 	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
 	client.send(test)
 	client.send("%s", test)
 
@@ -150,6 +151,7 @@ func TestJoin(t *testing.T) {
 	channel1 := "test1"
 	channel2 := "#test2"
 	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
 	client.Join(channel1)
 	client.Join(channel2)
 
@@ -223,6 +225,7 @@ func TestSendLoop(t *testing.T) {
 func TestEndRecvLoop(t *testing.T) {
 	var wg sync.WaitGroup
 	client, server := createClientServer()
+	client.sendQueue = make(chan string, sendBufferSize)
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -244,6 +247,7 @@ func TestEndRecvLoop(t *testing.T) {
 func TestTimeoutRecvLoop(t *testing.T) {
 	var wg sync.WaitGroup
 	client, server := createClientServer()
+	client.sendQueue = make(chan string, sendBufferSize)
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -260,6 +264,7 @@ func TestTimeoutRecvLoop(t *testing.T) {
 
 func TestOnJoin(t *testing.T) {
 	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
 	expectedNick := "test_nick"
 	expectedChan := "#test"
 	var gotChan string
@@ -280,6 +285,7 @@ func TestOnJoin(t *testing.T) {
 
 func TestOnChat(t *testing.T) {
 	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1"}
 	expectedMsg := "Test message!"
@@ -292,7 +298,7 @@ func TestOnChat(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createPrivMsg(expectedChan, expectedMsg, expectedTags)
+	line := createMessage("PRIVMSG", expectedChan, expectedMsg, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
@@ -310,6 +316,7 @@ func TestOnChat(t *testing.T) {
 
 func TestOnAction(t *testing.T) {
 	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1"}
 	expectedMsg := "Test message!"
@@ -322,7 +329,7 @@ func TestOnAction(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createPrivMsg(expectedChan, "\u0001ACTION"+expectedMsg, expectedTags)
+	line := createMessage("PRIVMSG", expectedChan, "\u0001ACTION"+expectedMsg, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
@@ -340,6 +347,7 @@ func TestOnAction(t *testing.T) {
 
 func TestOnCheer(t *testing.T) {
 	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1", "bits": "100"}
 	expectedMsg := "Test message!"
@@ -352,7 +360,7 @@ func TestOnCheer(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createPrivMsg(expectedChan, expectedMsg, expectedTags)
+	line := createMessage("PRIVMSG", expectedChan, expectedMsg, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
@@ -368,7 +376,103 @@ func TestOnCheer(t *testing.T) {
 	}
 }
 
-func createPrivMsg(channel, msg string, tags map[string]string) string {
+func TestOnResub(t *testing.T) {
+	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
+	expectedChan := "#test"
+	expectedTags := map[string]string{"msg-id": "resub", "msg-param-months": "6", "msg-param-sub-plan": "Prime"}
+	expectedMsg := "Test message!"
+	var gotChan string
+	var gotTags map[string]string
+	var gotMsg string
+	client.OnResub(func(channel string, tags map[string]string, msg string) {
+		gotChan = channel
+		gotTags = tags
+		gotMsg = msg
+	})
+
+	line := createMessage("USERNOTICE", expectedChan, expectedMsg, expectedTags)
+	client.doCallbacks(line)
+
+	if expectedMsg != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+}
+
+func TestOnSubscription(t *testing.T) {
+	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
+	expectedChan := "#test"
+	expectedTags := map[string]string{"msg-id": "sub", "msg-param-sub-plan": "Prime"}
+	expectedMsg := "Test message!"
+	var gotChan string
+	var gotTags map[string]string
+	var gotMsg string
+	client.OnSubscription(func(channel string, tags map[string]string, msg string) {
+		gotChan = channel
+		gotTags = tags
+		gotMsg = msg
+	})
+
+	line := createMessage("USERNOTICE", expectedChan, expectedMsg, expectedTags)
+	client.doCallbacks(line)
+
+	if expectedMsg != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+}
+
+func TestCloseConnection(t *testing.T) {
+	var wg sync.WaitGroup
+	client, server := createClientServer()
+	client.options.Channels = []string{"test_channel1"}
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+
+		client.readTimeout = 500 * time.Millisecond
+		err := client.doPostConnect("test", "test", client.conn, 10, 2)
+		if err == nil {
+			t.Errorf("Expected 'non-nil' error, got nil")
+		}
+	}()
+
+	in := bufio.NewReader(server)
+	out := bufio.NewWriter(server)
+
+	line, _ := in.ReadString('\n') // PASS
+	line, _ = in.ReadString('\n')  // NICK
+	out.WriteString(":tmi.twitch.tv 001 " + username + " :Welcome, GLHF!\r\n")
+	out.Flush()
+
+	line, _ = in.ReadString('\n')
+	if line != fmt.Sprintf("CAP REQ :%s\r\n", strings.Join(caps, " twitch.tv/")) {
+		t.Errorf("Expected caps '%v', got '%s'", caps, line)
+	}
+
+	line, _ = in.ReadString('\n') // JOIN
+
+	server.Close()
+	wg.Wait()
+}
+
+func createMessage(msgType, channel, msg string, tags map[string]string) string {
 	var data bytes.Buffer
 	data.WriteRune('@')
 	size := 1
@@ -384,7 +488,9 @@ func createPrivMsg(channel, msg string, tags map[string]string) string {
 	}
 	size--
 	data.Truncate(size)
-	data.WriteString(" :x!x@x.tmi.twitch.tv PRIVMSG ")
+	data.WriteString(" :x!x@x.tmi.twitch.tv ")
+	data.WriteString(msgType)
+	data.WriteRune(' ')
 	data.WriteString(channel)
 	data.WriteString(" :")
 	data.WriteString(msg)
