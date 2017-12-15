@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -482,6 +483,28 @@ func TestOnPing(t *testing.T) {
 	if line != expect {
 		t.Errorf("Expected '%s', got '%s'", expect, line)
 	}
+}
+
+func TestLog(t *testing.T) {
+	client := NewClient(Options{})
+	in, out := net.Pipe()
+	r := bufio.NewReader(in)
+
+	log.SetOutput(out)
+
+	go func() {
+		client.log("A") // Should not be logged
+		client.options.Debug = true
+		client.log("B\n") // Should be logged
+	}()
+
+	line, _ := r.ReadString('\n')
+	if line[len(line)-3:] != " B\n" {
+		t.Errorf("Expected ' B\n', got '%s'", line[len(line)-3:])
+	}
+
+	in.Close()
+	out.Close()
 }
 
 func createMessage(msgType, channel, msg string, tags map[string]string) string {
