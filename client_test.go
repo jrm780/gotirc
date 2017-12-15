@@ -472,6 +472,18 @@ func TestCloseConnection(t *testing.T) {
 	wg.Wait()
 }
 
+func TestOnPing(t *testing.T) {
+	client := NewClient(Options{})
+	client.sendQueue = make(chan string, 1)
+	client.doCallbacks("PING :tmi.twitch.tv\r\n")
+
+	line := <-client.sendQueue
+	expect := "PONG :tmi.twitch.tv"
+	if line != expect {
+		t.Errorf("Expected '%s', got '%s'", expect, line)
+	}
+}
+
 func createMessage(msgType, channel, msg string, tags map[string]string) string {
 	var data bytes.Buffer
 	data.WriteRune('@')

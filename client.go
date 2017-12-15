@@ -70,6 +70,7 @@ func (c *Client) Connect(nick string, pass string) error {
 }
 
 func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, perSeconds float64) error {
+	c.conn = conn
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
 	c.sendQueue = make(chan string, sendBufferSize)
@@ -263,6 +264,8 @@ func (c *Client) doCallbacks(line string) {
 		} else if msgid == "sub" {
 			c.doSubscriptionCallbacks(&msg)
 		}
+	} else if msg.Command == "PING" {
+		c.send(fmt.Sprintf("PONG :%s", msg.Params[0]))
 	}
 }
 
