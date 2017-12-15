@@ -61,12 +61,7 @@ func (c *Client) Connect(nick string, pass string) error {
 		return err
 	}
 
-	err = c.doPostConnect(nick, pass, conn, 19, 30)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return c.doPostConnect(nick, pass, conn, 19, 30)
 }
 
 func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, perSeconds float64) error {
@@ -140,10 +135,7 @@ func (c *Client) Join(channel string) {
 }
 
 func (c *Client) authenticate(nick, pass string) error {
-	if err := c.write(fmt.Sprintf("PASS %s\r\n", pass)); err != nil {
-		return err
-	}
-	if err := c.write(fmt.Sprintf("NICK %s\r\n", nick)); err != nil {
+	if err := c.write(fmt.Sprintf("PASS %s\r\nNICK %s\r\n", pass, nick)); err != nil {
 		return err
 	}
 
