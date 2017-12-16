@@ -92,6 +92,16 @@ func TestSend(t *testing.T) {
 	test := "test\n"
 	client := NewClient(Options{})
 	client.sendQueue = make(chan string, sendBufferSize)
+
+	// Client not yet connected
+	client.send(test)
+	select {
+	case <-client.sendQueue:
+		t.Error("Expected empty channel")
+	default:
+	}
+
+	client.connected = true
 	client.send(test)
 	client.send("%s", test)
 
@@ -153,6 +163,7 @@ func TestJoin(t *testing.T) {
 	channel2 := "#test2"
 	client := NewClient(Options{})
 	client.sendQueue = make(chan string, sendBufferSize)
+	client.connected = true
 	client.Join(channel1)
 	client.Join(channel2)
 
@@ -183,6 +194,7 @@ func TestSendLoop(t *testing.T) {
 	var wg sync.WaitGroup
 	client, server := createClientServer()
 	client.sendQueue = make(chan string, sendBufferSize)
+	client.connected = true
 	go func() {
 		wg.Add(1)
 		defer wg.Done()
@@ -265,7 +277,6 @@ func TestTimeoutRecvLoop(t *testing.T) {
 
 func TestOnJoin(t *testing.T) {
 	client := NewClient(Options{})
-	client.sendQueue = make(chan string, sendBufferSize)
 	expectedNick := "test_nick"
 	expectedChan := "#test"
 	var gotChan string
@@ -286,7 +297,6 @@ func TestOnJoin(t *testing.T) {
 
 func TestOnChat(t *testing.T) {
 	client := NewClient(Options{})
-	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1"}
 	expectedMsg := "Test message!"
@@ -317,7 +327,6 @@ func TestOnChat(t *testing.T) {
 
 func TestOnAction(t *testing.T) {
 	client := NewClient(Options{})
-	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1"}
 	expectedMsg := "Test message!"
@@ -348,7 +357,6 @@ func TestOnAction(t *testing.T) {
 
 func TestOnCheer(t *testing.T) {
 	client := NewClient(Options{})
-	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"display-name": "Test_Nick", "mod": "1", "bits": "100"}
 	expectedMsg := "Test message!"
@@ -379,7 +387,6 @@ func TestOnCheer(t *testing.T) {
 
 func TestOnResub(t *testing.T) {
 	client := NewClient(Options{})
-	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"msg-id": "resub", "msg-param-months": "6", "msg-param-sub-plan": "Prime"}
 	expectedMsg := "Test message!"
@@ -410,7 +417,6 @@ func TestOnResub(t *testing.T) {
 
 func TestOnSubscription(t *testing.T) {
 	client := NewClient(Options{})
-	client.sendQueue = make(chan string, sendBufferSize)
 	expectedChan := "#test"
 	expectedTags := map[string]string{"msg-id": "sub", "msg-param-sub-plan": "Prime"}
 	expectedMsg := "Test message!"
@@ -439,6 +445,57 @@ func TestOnSubscription(t *testing.T) {
 	}
 }
 
+func TestSay(t *testing.T) {
+	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
+	client.connected = true
+
+	channel := "channel1"
+	msg := "This is a test"
+	client.Say(channel, msg)
+	client.Say("#"+channel, msg)
+
+	select {
+	case data := <-client.sendQueue:
+		expect := fmt.Sprintf("PRIVMSG #%s :%s", channel, msg)
+		if data != expect {
+			t.Errorf("Expected '%s', got '%s'", expect, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+
+	select {
+	case data := <-client.sendQueue:
+		expect := fmt.Sprintf("PRIVMSG #%s :%s", channel, msg)
+		if data != expect {
+			t.Errorf("Expected '%s', got '%s'", expect, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+}
+
+func TestWhisper(t *testing.T) {
+	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
+	client.connected = true
+
+	nick := "testnick"
+	msg := "This is a test"
+	client.Whisper(nick, msg)
+
+	select {
+	case data := <-client.sendQueue:
+		expect := fmt.Sprintf("PRIVMSG #jtv :/w %s %s", nick, msg)
+		if data != expect {
+			t.Errorf("Expected '%s', got '%s'", expect, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+}
+
 func TestCloseConnection(t *testing.T) {
 	var wg sync.WaitGroup
 	client, server := createClientServer()
@@ -447,8 +504,29 @@ func TestCloseConnection(t *testing.T) {
 		wg.Add(1)
 		defer wg.Done()
 
+		// Client not yet connected
+		if client.Connected() {
+			t.Error("Expected 'false', got 'true'")
+		}
+
+		// First-time connection
+		_, err := client.doConnect(func() (net.Conn, error) {
+			return client.conn, nil
+		})
+		if err != nil {
+			t.Errorf("Expected 'nil' error, got %s", err)
+		}
+
+		// Already connected, should return error
+		_, err = client.doConnect(func() (net.Conn, error) {
+			return client.conn, nil
+		})
+		if err == nil {
+			t.Errorf("Expected 'non-nil' error, got nil")
+		}
+
 		client.readTimeout = 500 * time.Millisecond
-		err := client.doPostConnect("test", "test", client.conn, 10, 2)
+		err = client.doPostConnect("test", "test", client.conn, 10, 2)
 		if err == nil {
 			t.Errorf("Expected 'non-nil' error, got nil")
 		}
@@ -467,15 +545,25 @@ func TestCloseConnection(t *testing.T) {
 		t.Errorf("Expected caps '%v', got '%s'", caps, line)
 	}
 
+	if !client.Connected() {
+		t.Error("Expected 'true', got 'false'")
+	}
+
 	line, _ = in.ReadString('\n') // JOIN
 
 	server.Close()
 	wg.Wait()
+
+	// Should be disconnected after server closed connection
+	if client.Connected() {
+		t.Error("Expected 'false', got 'true'")
+	}
 }
 
 func TestOnPing(t *testing.T) {
 	client := NewClient(Options{})
 	client.sendQueue = make(chan string, 1)
+	client.connected = true
 	client.doCallbacks("PING :tmi.twitch.tv\r\n")
 
 	line := <-client.sendQueue

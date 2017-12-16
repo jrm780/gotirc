@@ -3,6 +3,7 @@ package gotirc
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -35,6 +36,8 @@ type Client struct {
 
 	conn        net.Conn
 	readTimeout time.Duration
+	connectedMu sync.RWMutex
+	connected   bool
 
 	callbackMu            sync.Mutex
 	actionCallbacks       []func(channel string, tags map[string]string, msg string)
@@ -53,15 +56,43 @@ func NewClient(o Options) *Client {
 	}
 }
 
-// Connect connects the client to the server specified in the options.
-// This call will block and run event callbacks until disconnected
+// Connect connects the client to the server specified in the options and uses
+// the supplied nick and pass (oauth token) to authenticate. Connect blocks and
+// runs event callbacks until disconnected
 func (c *Client) Connect(nick string, pass string) error {
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.options.Host, c.options.Port))
+	conn, err := c.doConnect(func() (net.Conn, error) {
+		return net.Dial("tcp", fmt.Sprintf("%s:%d", c.options.Host, c.options.Port))
+	})
+
 	if err != nil {
 		return err
 	}
 
 	return c.doPostConnect(nick, pass, conn, 19, 30)
+}
+
+func (c *Client) doConnect(connFactory func() (net.Conn, error)) (net.Conn, error) {
+	c.connectedMu.Lock()
+	defer c.connectedMu.Unlock()
+
+	if c.connected {
+		return nil, errors.New("Already connected")
+	}
+
+	conn, err := connFactory()
+	if err == nil {
+		c.connected = true
+	}
+
+	return conn, err
+}
+
+// Connected returns true if the client is currently connected to the server,
+// false otherwise
+func (c *Client) Connected() bool {
+	c.connectedMu.RLock()
+	defer c.connectedMu.RUnlock()
+	return c.connected
 }
 
 func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, perSeconds float64) error {
@@ -80,7 +111,24 @@ func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, pe
 
 	go c.startSendLoop(maxMessages, perSeconds)
 
-	return c.startRecvLoop()
+	err := c.startRecvLoop()
+	c.connectedMu.Lock()
+	c.connected = false
+	c.connectedMu.Unlock()
+	return err
+}
+
+// Say sends a message to a channel
+func (c *Client) Say(channel string, msg string) {
+	if channel[0] != '#' {
+		channel = "#" + channel
+	}
+	c.send(fmt.Sprintf("PRIVMSG %s :%s", channel, msg))
+}
+
+// Whisper sends a whisper to a user
+func (c *Client) Whisper(user string, msg string) {
+	c.Say("#jtv", "/w "+user+" "+msg)
 }
 
 // OnAction adds an event callback for action (e.g., /me) messages
@@ -155,6 +203,10 @@ func (c *Client) authenticate(nick, pass string) error {
 }
 
 func (c *Client) send(format string, args ...interface{}) {
+	if !c.Connected() {
+		return
+	}
+
 	msg := fmt.Sprintf(format, args...)
 	select {
 	case c.sendQueue <- msg:
