@@ -45,15 +45,17 @@ A `gotirc.Client` is used to connect to Twitch chat. Callbacks can be passed to 
 ```
 
 #### Currently Implemented Callbacks
-* OnAction(func(channel string, tags map[string]string, msg string))
+* **OnAction(**_func(channel string, tags map[string]string, msg string)_**)**
   * Adds an event callback for action (e.g., /me) messages
-* OnChat(func(channel string, tags map[string]string, msg string))
+* **OnChat(**_func(channel string, tags map[string]string, msg string)_**)**
   * Adds an event callback for when a user sends a message in a channel
-* OnResub(func(channel string, tags map[string]string, msg string))
+* **OnResub(**_func(channel string, tags map[string]string, msg string)_**)**
   * Adds an event callback for when a user resubs to a channel
-* OnSubscription(func(channel string, tags map[string]string, msg string))
+* **OnSubscription(**_func(channel string, tags map[string]string, msg string)_**)**
   * Adds an event callback for when a user subscribes to a channel
-* OnCheer(func(channel string, tags map[string]string, msg string)) {
+* **OnCheer(**_func(channel string, tags map[string]string, msg string)_**)**
   * Adds an event callback for when a user cheers bits in a channel
-* OnJoin(func(channel, username string))
+* **OnJoin(**_func(channel, username string)_**)**
   * Adds an event callback for when a user joins a channel
+  
+Tags are metadata associated with the message and include information such as the user's display-name and chat color. Twitch may change the tags at any time, so it's best to refer to [their documentation](https://dev.twitch.tv/docs/irc#privmsg-twitch-tags) to determine which data is available.
