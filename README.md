@@ -40,7 +40,9 @@ A `gotirc.Client` is used to connect to Twitch chat. Callbacks can be passed to 
 ```go
     client := gotirc.NewClient(options)
     for {
-        client.Connect("justinfan1337", "abc123")
+        err := client.Connect("justinfan1337", "abc123")
+        fmt.Printf("Disconnected: %s. Reconnecting in 5 seconds...\n", err)
+        time.Sleep(5*time.Second)
     }
 ```
 
