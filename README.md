@@ -27,7 +27,7 @@ A `gotirc.Client` is used to connect to Twitch chat. Callbacks can be passed to 
         
         // Whenever someone sends a message, log it
         client.OnChat(func(channel string, tags map[string]string, msg string) {
-            fmt.Printf("[%s]: %s", tags["display-name"], msg)
+            log.Printf("[%s]: %s", tags["display-name"], msg)
         })
         
         // Connect and authenticate with the given username and oauth token
