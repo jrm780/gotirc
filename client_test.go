@@ -21,6 +21,7 @@ func createClientServer() (*Client, net.Conn) {
 	client.conn, server = net.Pipe()
 	client.reader = bufio.NewReader(client.conn)
 	client.writer = bufio.NewWriter(client.conn)
+	client.doneChan = make(chan struct{})
 	return &client, server
 }
 
@@ -188,6 +189,36 @@ func TestJoin(t *testing.T) {
 	}
 }
 
+func TestPart(t *testing.T) {
+	channel1 := "test1"
+	channel2 := "#test2"
+	client := NewClient(Options{})
+	client.sendQueue = make(chan string, sendBufferSize)
+	client.connected = true
+	client.Part(channel1)
+	client.Part(channel2)
+
+	select {
+	case data := <-client.sendQueue:
+		expect := "PART #" + channel1
+		if data != expect {
+			t.Errorf("Expected '%s', got '%s'", expect, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+
+	select {
+	case data := <-client.sendQueue:
+		expect := "PART " + channel2
+		if data != expect {
+			t.Errorf("Expected '%s', got '%s'", expect, data)
+		}
+	default:
+		t.Error("Expected nonempty channel")
+	}
+}
+
 func TestSendLoop(t *testing.T) {
 	maxBurst := 10
 	perSeconds := 2
@@ -285,6 +316,26 @@ func TestOnJoin(t *testing.T) {
 		gotChan, gotNick = channel, nick
 	})
 	client.doCallbacks(fmt.Sprintf(":%s!%s@%s.tmi.twitch.tv JOIN %s\r\n",
+		expectedNick, expectedNick, expectedNick, expectedChan))
+
+	if expectedNick != gotNick {
+		t.Errorf("Expected '%s', got '%s'", expectedNick, gotNick)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+}
+
+func TestOnPart(t *testing.T) {
+	client := NewClient(Options{})
+	expectedNick := "test_nick"
+	expectedChan := "#test"
+	var gotChan string
+	var gotNick string
+	client.OnPart(func(channel, nick string) {
+		gotChan, gotNick = channel, nick
+	})
+	client.doCallbacks(fmt.Sprintf(":%s!%s@%s.tmi.twitch.tv PART %s\r\n",
 		expectedNick, expectedNick, expectedNick, expectedChan))
 
 	if expectedNick != gotNick {
@@ -552,6 +603,61 @@ func TestCloseConnection(t *testing.T) {
 	line, _ = in.ReadString('\n') // JOIN
 
 	server.Close()
+	wg.Wait()
+
+	// Should be disconnected after server closed connection
+	if client.Connected() {
+		t.Error("Expected 'false', got 'true'")
+	}
+}
+
+func TestDisconnect(t *testing.T) {
+	var wg sync.WaitGroup
+	client, server := createClientServer()
+	client.options.Channels = []string{"test_channel1"}
+	go func() {
+		wg.Add(1)
+		defer wg.Done()
+
+		// Client not yet connected
+		if client.Connected() {
+			t.Error("Expected 'false', got 'true'")
+		}
+
+		_, err := client.doConnect(func() (net.Conn, error) {
+			return client.conn, nil
+		})
+		if err != nil {
+			t.Errorf("Expected 'nil' error, got %s", err)
+		}
+
+		client.readTimeout = 500 * time.Millisecond
+		err = client.doPostConnect("test", "test", client.conn, 10, 2)
+		if err == nil {
+			t.Errorf("Expected 'non-nil' error, got nil")
+		}
+	}()
+
+	in := bufio.NewReader(server)
+	out := bufio.NewWriter(server)
+
+	line, _ := in.ReadString('\n') // PASS
+	line, _ = in.ReadString('\n')  // NICK
+	out.WriteString(":tmi.twitch.tv 001 " + username + " :Welcome, GLHF!\r\n")
+	out.Flush()
+
+	line, _ = in.ReadString('\n')
+	if line != fmt.Sprintf("CAP REQ :%s\r\n", strings.Join(caps, " twitch.tv/")) {
+		t.Errorf("Expected caps '%v', got '%s'", caps, line)
+	}
+
+	if !client.Connected() {
+		t.Error("Expected 'true', got 'false'")
+	}
+
+	line, _ = in.ReadString('\n') // JOIN
+
+	client.Disconnect()
 	wg.Wait()
 
 	// Should be disconnected after server closed connection

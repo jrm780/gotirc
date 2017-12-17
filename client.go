@@ -18,11 +18,10 @@ var caps = []string{"membership", "commands", "tags"}
 
 // Options facilitates passing desired settings to a new Client
 type Options struct {
-	Debug     bool
-	Port      int
-	Host      string
-	Channels  []string
-	Reconnect bool
+	Debug    bool
+	Port     int
+	Host     string
+	Channels []string
 }
 
 // Client holds state and context information to maintain a connection with a server
@@ -38,6 +37,7 @@ type Client struct {
 	readTimeout time.Duration
 	connectedMu sync.RWMutex
 	connected   bool
+	doneChan    chan struct{}
 
 	callbackMu            sync.Mutex
 	actionCallbacks       []func(channel string, tags map[string]string, msg string)
@@ -46,6 +46,7 @@ type Client struct {
 	subscriptionCallbacks []func(channel string, tags map[string]string, msg string)
 	cheerCallbacks        []func(channel string, tags map[string]string, msg string)
 	joinCallbacks         []func(channel, username string)
+	partCallbacks         []func(channel, username string)
 }
 
 // NewClient returns a new Client
@@ -87,6 +88,16 @@ func (c *Client) doConnect(connFactory func() (net.Conn, error)) (net.Conn, erro
 	return conn, err
 }
 
+// Disconnect closes the client's connection with the server
+func (c *Client) Disconnect() {
+	c.connectedMu.Lock()
+	defer c.connectedMu.Unlock()
+	if c.connected {
+		c.connected = false
+		close(c.doneChan)
+	}
+}
+
 // Connected returns true if the client is currently connected to the server,
 // false otherwise
 func (c *Client) Connected() bool {
@@ -99,7 +110,9 @@ func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, pe
 	c.conn = conn
 	c.reader = bufio.NewReader(conn)
 	c.writer = bufio.NewWriter(conn)
+	c.doneChan = make(chan struct{})
 	c.sendQueue = make(chan string, sendBufferSize)
+	defer close(c.sendQueue)
 
 	if err := c.authenticate(nick, pass); err != nil {
 		return err
@@ -110,12 +123,7 @@ func (c *Client) doPostConnect(nick, pass string, conn net.Conn, maxMessages, pe
 	}
 
 	go c.startSendLoop(maxMessages, perSeconds)
-
-	err := c.startRecvLoop()
-	c.connectedMu.Lock()
-	c.connected = false
-	c.connectedMu.Unlock()
-	return err
+	return c.startRecvLoop()
 }
 
 // Say sends a message to a channel
@@ -173,6 +181,13 @@ func (c *Client) OnJoin(callback func(channel, username string)) {
 	c.joinCallbacks = append(c.joinCallbacks, callback)
 }
 
+// OnPart adds an event callback for when a user parts a channel
+func (c *Client) OnPart(callback func(channel, username string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.partCallbacks = append(c.partCallbacks, callback)
+}
+
 // Join tells the client to join a particular channel. If the "#" prefix is missing,
 // it is automatically prepended.
 func (c *Client) Join(channel string) {
@@ -180,6 +195,15 @@ func (c *Client) Join(channel string) {
 		channel = "#" + channel
 	}
 	c.send("JOIN %s", channel)
+}
+
+// Part tells the client to part a particular channel. If the "#" prefix is missing,
+// it is automatically prepended.
+func (c *Client) Part(channel string) {
+	if !strings.HasPrefix(channel, "#") {
+		channel = "#" + channel
+	}
+	c.send("PART %s", channel)
 }
 
 func (c *Client) authenticate(nick, pass string) error {
@@ -242,30 +266,35 @@ func (c *Client) startSendLoop(maxMessages, perSeconds float64) {
 	tokens := maxMessages
 	lastTick := time.Now()
 
-	for data := range c.sendQueue {
-
-		if !strings.HasSuffix(data, "\r\n") {
-			data = data + "\r\n"
-		}
-
-		now := time.Now()
-		elapsedTime := now.Sub(lastTick)
-		lastTick = now
-		tokens += elapsedTime.Seconds() * (maxMessages / perSeconds)
-
-		if tokens >= maxMessages {
-			tokens = maxMessages
-		} else if tokens < 1 {
-			required := 1 - tokens
-			time.Sleep(time.Duration(required * float64(time.Second)))
-		}
-
-		if err := c.write(data); err != nil {
-			c.log("ERROR sending: %s", err)
+	for {
+		select {
+		case <-c.doneChan:
 			return
-		}
+		case data := <-c.sendQueue:
+			if !strings.HasSuffix(data, "\r\n") {
+				data = data + "\r\n"
+			}
 
-		tokens--
+			now := time.Now()
+			elapsedTime := now.Sub(lastTick)
+			lastTick = now
+			tokens += elapsedTime.Seconds() * (maxMessages / perSeconds)
+
+			if tokens >= maxMessages {
+				tokens = maxMessages
+			} else if tokens < 1 {
+				required := 1 - tokens
+				time.Sleep(time.Duration(required * float64(time.Second)))
+			}
+
+			if err := c.write(data); err != nil {
+				c.log("ERROR sending: %s", err)
+				c.Disconnect()
+				return
+			}
+
+			tokens--
+		}
 	}
 }
 
@@ -274,7 +303,7 @@ func (c *Client) startRecvLoop() error {
 		c.conn.SetReadDeadline(time.Now().Add(c.readTimeout))
 		line, err := c.reader.ReadString('\n')
 		if err != nil {
-			close(c.sendQueue)
+			c.Disconnect()
 			return err
 		}
 		c.log("> %s", line)
@@ -301,6 +330,8 @@ func (c *Client) doCallbacks(line string) {
 		}
 	} else if msg.Command == "JOIN" {
 		c.doJoinCallbacks(&msg)
+	} else if msg.Command == "PART" {
+		c.doPartCallbacks(&msg)
 	} else if msg.Command == "USERNOTICE" {
 		msgid := msg.Tags["msg-id"]
 		if msgid == "resub" {
@@ -367,6 +398,16 @@ func (c *Client) doChatCallbacks(msg *Message) {
 func (c *Client) doJoinCallbacks(msg *Message) {
 	c.callbackMu.Lock()
 	callbacks := c.joinCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Prefix.Nick)
+	}
+}
+
+func (c *Client) doPartCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.partCallbacks
 	c.callbackMu.Unlock()
 
 	for _, cb := range callbacks {
