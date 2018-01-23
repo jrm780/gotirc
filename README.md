@@ -57,6 +57,8 @@ A `gotirc.Client` is used to connect to Twitch chat. Callbacks can be passed to 
   * Joins a channel
 * **Part(**_channel string_**)**
   * Leaves a channel
+* **Say(**_channel string, msg string_**)**
+  * Sends a message to a channel
 * **Whisper(**_user string, msg string_**)**
   * Sends a whisper to a user
 
