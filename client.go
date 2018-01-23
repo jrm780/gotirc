@@ -43,6 +43,7 @@ type Client struct {
 	actionCallbacks       []func(channel string, tags map[string]string, msg string)
 	chatCallbacks         []func(channel string, tags map[string]string, msg string)
 	resubCallbacks        []func(channel string, tags map[string]string, msg string)
+	subGiftcallbacks      []func(channel string, tags map[string]string, msg string)
 	subscriptionCallbacks []func(channel string, tags map[string]string, msg string)
 	cheerCallbacks        []func(channel string, tags map[string]string, msg string)
 	joinCallbacks         []func(channel, username string)
@@ -165,6 +166,13 @@ func (c *Client) OnSubscription(callback func(channel string, tags map[string]st
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.subscriptionCallbacks = append(c.subscriptionCallbacks, callback)
+}
+
+// OnSubGift adds an event callback for when a user gifts a sub to a user in a channel
+func (c *Client) OnSubGift(callback func(channel string, tags map[string]string, msg string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.subGiftcallbacks = append(c.subGiftcallbacks, callback)
 }
 
 // OnCheer adds an event callback for when a user cheers bits in a channel
@@ -338,6 +346,8 @@ func (c *Client) doCallbacks(line string) {
 			c.doResubCallbacks(&msg)
 		} else if msgid == "sub" {
 			c.doSubscriptionCallbacks(&msg)
+		} else if msgid == "subgift" {
+			c.doSubGiftCallbacks(&msg)
 		}
 	} else if msg.Command == "PING" {
 		c.send(fmt.Sprintf("PONG :%s", msg.Params[0]))
@@ -357,6 +367,16 @@ func (c *Client) doResubCallbacks(msg *Message) {
 func (c *Client) doSubscriptionCallbacks(msg *Message) {
 	c.callbackMu.Lock()
 	callbacks := c.subscriptionCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Tags, msg.Params[1])
+	}
+}
+
+func (c *Client) doSubGiftCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.subGiftcallbacks
 	c.callbackMu.Unlock()
 
 	for _, cb := range callbacks {

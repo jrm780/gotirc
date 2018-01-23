@@ -75,5 +75,28 @@ A `gotirc.Client` is used to connect to Twitch chat. Callbacks can be passed to 
   * Adds an event callback for when a user resubs to a channel
 * **OnSubscription(**_func(channel string, tags map[string]string, msg string)_**)**
   * Adds an event callback for when a user subscribes to a channel
-  
+* **OnSubGift(**_func(channel string, tags map[string]string, msg string)_**)**
+  * Adds an event callback for when a user gifts another a subscription to a channel. The tags for these messages are currently undocumented in the Twitch reference, so an example is provided:
+    * badges=subscriber/0,bits/100
+    * color=#FF0000
+    * user-id=59638395
+    * display-name=GiftGiver1337
+    * login=giftgiver1337
+    * subscriber=1
+    * turbo=0
+    * user-type=
+    * emotes=
+    * id=8eae6b0e-b7eb-4c1b-99a8-dd857dd868d8
+    * mod=0
+    * msg-id=subgift
+    * msg-param-months=2
+    * msg-param-recipient-display-name=GiftRecipient1337
+    * msg-param-recipient-id=133769696
+    * msg-param-recipient-user-name=giftrecipient1337
+    * msg-param-sub-plan-name=The\sBest\sSubs
+    * msg-param-sub-plan=1000
+    * room-id=133742069
+    * system-msg=GiftGiver1337\sgifted\sa\s$4.99\ssub\sto\sGiftRecipient1337!
+    * tmi-sent-ts=1513746444792
+
 Tags are metadata associated with the message and include information such as the user's display-name and chat color. Twitch may change the tags at any time, so it's best to refer to [their documentation](https://dev.twitch.tv/docs/irc#privmsg-twitch-tags) to determine which data is available.

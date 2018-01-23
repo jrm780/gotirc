@@ -496,6 +496,46 @@ func TestOnSubscription(t *testing.T) {
 	}
 }
 
+func TestOnGiftSub(t *testing.T) {
+	client := NewClient(Options{})
+	expectedChan := "#test"
+	// @badges=subscriber/0,bits/100;color=#FF0000;display-name=GiftGiver1337;emotes=;id=8eae6b0e-b7eb-4c1b-99a8-dd857dd868d8;login=giftgiver1337;mod=0;msg-id=subgift;msg-param-months=2;msg-param-recipient-display-name=GiftRecipient1337;msg-param-recipient-id=133769696;msg-param-recipient-user-name=giftrecipient1337;msg-param-sub-plan-name=The\sCookie\sJar;msg-param-sub-plan=1000;room-id=73380037;subscriber=1;system-msg=GiftGiver1337\sgifted\sa\s$4.99\ssub\sto\sGiftRecipient1337!;tmi-sent-ts=1513746444792;turbo=0;user-id=59638395;user-type= :tmi.twitch.tv USERNOTICE #test
+	expectedTags := map[string]string{
+		"msg-id":                           "subgift",
+		"display-name":                     "GiftGiver1337",
+		"login":                            "giftgiver1337",
+		"msg-param-sub-plan":               "Prime",
+		"msg-param-months":                 "2",
+		"msg-param-recipient-display-name": "GiftRecipient1337",
+		"msg-param-recipient-user-name":    "giftrecipient1337",
+		"msg-param-recipient-id":           "133769696",
+	}
+	expectedMsg := "Test message!"
+	var gotChan string
+	var gotTags map[string]string
+	var gotMsg string
+	client.OnSubGift(func(channel string, tags map[string]string, msg string) {
+		gotChan = channel
+		gotTags = tags
+		gotMsg = msg
+	})
+
+	line := createMessage("USERNOTICE", expectedChan, expectedMsg, expectedTags)
+	client.doCallbacks(line)
+
+	if expectedMsg != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+}
+
 func TestSay(t *testing.T) {
 	client := NewClient(Options{})
 	client.sendQueue = make(chan string, sendBufferSize)
