@@ -3,7 +3,7 @@
 
 ### A Twitch.tv IRC library written in Go
 
-[Twitch chat](https://dev.twitch.tv/docs/irc) uses a protocol built on TCP that is roughly based on Internet Relay Chat (IRC) RFC 1459. This package provides convenience functionality for implementing software that requires Twitch chat interaction (e.g., bots, statistics, etc.). The gotirc Client limits the rate of sent messages to avoid global bans, and the API is inspired by [tmi.js](https://www.tmijs.org/).
+[Twitch chat](https://dev.twitch.tv/docs/irc) uses a protocol built on TCP that is roughly based on Internet Relay Chat (IRC) RFC 1459. This package provides convenience functionality for implementing software that requires Twitch chat interaction (e.g., bots, statistics, etc.). The `gotirc.Client` public methods can be safely called from concurrent go-routines, and the API is inspired by [tmi.js](https://www.tmijs.org/). Message sending is rate limited to avoid global bans.
 
 #### Client
 A `gotirc.Client` is used to connect to Twitch chat. Callbacks can be passed to the Client to perform actions when particular events occur.
