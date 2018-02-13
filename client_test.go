@@ -360,7 +360,7 @@ func TestOnChat(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createMessage("PRIVMSG", expectedChan, expectedMsg, expectedTags)
+	line := createMessage("PRIVMSG", expectedChan, []string{expectedMsg}, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
@@ -390,7 +390,7 @@ func TestOnAction(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createMessage("PRIVMSG", expectedChan, "\u0001ACTION"+expectedMsg, expectedTags)
+	line := createMessage("PRIVMSG", expectedChan, []string{"\u0001ACTION" + expectedMsg}, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
@@ -420,7 +420,7 @@ func TestOnCheer(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createMessage("PRIVMSG", expectedChan, expectedMsg, expectedTags)
+	line := createMessage("PRIVMSG", expectedChan, []string{expectedMsg}, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
@@ -450,11 +450,28 @@ func TestOnResub(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createMessage("USERNOTICE", expectedChan, expectedMsg, expectedTags)
+	// With message
+	line := createMessage("USERNOTICE", expectedChan, []string{expectedMsg}, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
 		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+
+	// Without message
+	line = createMessage("USERNOTICE", expectedChan, nil, expectedTags)
+	client.doCallbacks(line)
+
+	if "" != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", "", gotMsg)
 	}
 	if expectedChan != gotChan {
 		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
@@ -480,11 +497,28 @@ func TestOnSubscription(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createMessage("USERNOTICE", expectedChan, expectedMsg, expectedTags)
+	// With message
+	line := createMessage("USERNOTICE", expectedChan, []string{expectedMsg}, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
 		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+
+	// Without message
+	line = createMessage("USERNOTICE", expectedChan, nil, expectedTags)
+	client.doCallbacks(line)
+
+	if "" != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", "", gotMsg)
 	}
 	if expectedChan != gotChan {
 		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
@@ -520,11 +554,28 @@ func TestOnGiftSub(t *testing.T) {
 		gotMsg = msg
 	})
 
-	line := createMessage("USERNOTICE", expectedChan, expectedMsg, expectedTags)
+	// With message
+	line := createMessage("USERNOTICE", expectedChan, []string{expectedMsg}, expectedTags)
 	client.doCallbacks(line)
 
 	if expectedMsg != gotMsg {
 		t.Errorf("Expected '%s', got '%s'", expectedMsg, gotMsg)
+	}
+	if expectedChan != gotChan {
+		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
+	}
+	for k := range expectedTags {
+		if expectedTags[k] != gotTags[k] {
+			t.Errorf("Expected '%s', got '%s'", expectedTags[k], gotTags[k])
+		}
+	}
+
+	// Without message
+	line = createMessage("USERNOTICE", expectedChan, nil, expectedTags)
+	client.doCallbacks(line)
+
+	if "" != gotMsg {
+		t.Errorf("Expected '%s', got '%s'", "", gotMsg)
 	}
 	if expectedChan != gotChan {
 		t.Errorf("Expected '%s', got '%s'", expectedChan, gotChan)
@@ -741,7 +792,7 @@ func TestLog(t *testing.T) {
 	out.Close()
 }
 
-func createMessage(msgType, channel, msg string, tags map[string]string) string {
+func createMessage(msgType string, channel string, params []string, tags map[string]string) string {
 	var data bytes.Buffer
 	data.WriteRune('@')
 	size := 1
@@ -761,8 +812,13 @@ func createMessage(msgType, channel, msg string, tags map[string]string) string 
 	data.WriteString(msgType)
 	data.WriteRune(' ')
 	data.WriteString(channel)
-	data.WriteString(" :")
-	data.WriteString(msg)
-	data.WriteString("\r\n")
+
+	if len(params) > 0 {
+		data.WriteString(" :")
+		data.WriteString(params[0])
+		for i := 1; i < len(params); i++ {
+			data.WriteString(" " + params[i])
+		}
+	}
 	return data.String()
 }

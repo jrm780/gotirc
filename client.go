@@ -360,7 +360,11 @@ func (c *Client) doResubCallbacks(msg *Message) {
 	c.callbackMu.Unlock()
 
 	for _, cb := range callbacks {
-		cb(msg.Params[0], msg.Tags, msg.Params[1])
+		m := ""
+		if len(msg.Params) > 1 {
+			m = msg.Params[1]
+		}
+		cb(msg.Params[0], msg.Tags, m)
 	}
 }
 
@@ -370,7 +374,11 @@ func (c *Client) doSubscriptionCallbacks(msg *Message) {
 	c.callbackMu.Unlock()
 
 	for _, cb := range callbacks {
-		cb(msg.Params[0], msg.Tags, msg.Params[1])
+		m := ""
+		if len(msg.Params) > 1 {
+			m = msg.Params[1]
+		}
+		cb(msg.Params[0], msg.Tags, m)
 	}
 }
 
@@ -380,7 +388,11 @@ func (c *Client) doSubGiftCallbacks(msg *Message) {
 	c.callbackMu.Unlock()
 
 	for _, cb := range callbacks {
-		cb(msg.Params[0], msg.Tags, msg.Params[1])
+		m := ""
+		if len(msg.Params) > 1 {
+			m = msg.Params[1]
+		}
+		cb(msg.Params[0], msg.Tags, m)
 	}
 }
 
