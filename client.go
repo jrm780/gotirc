@@ -43,6 +43,7 @@ type Client struct {
 	actionCallbacks       []func(channel string, tags map[string]string, msg string)
 	chatCallbacks         []func(channel string, tags map[string]string, msg string)
 	resubCallbacks        []func(channel string, tags map[string]string, msg string)
+	noticeCallbacks       []func(msg string)
 	subGiftcallbacks      []func(channel string, tags map[string]string, msg string)
 	subscriptionCallbacks []func(channel string, tags map[string]string, msg string)
 	cheerCallbacks        []func(channel string, tags map[string]string, msg string)
@@ -148,6 +149,13 @@ func (c *Client) OnAction(callback func(channel string, tags map[string]string, 
 	c.actionCallbacks = append(c.actionCallbacks, callback)
 }
 
+// OnNotice adds an event callback for NOTICE server messages
+func (c *Client) OnNotice(callback func(msg string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.noticeCallbacks = append(c.noticeCallbacks, callback)
+}
+
 // OnChat adds an event callback for when a user sends a message in a channel
 func (c *Client) OnChat(callback func(channel string, tags map[string]string, msg string)) {
 	c.callbackMu.Lock()
@@ -233,7 +241,9 @@ func (c *Client) authenticate(nick, pass string) error {
 	}
 
 	msg := NewMessage(line)
+
 	if msg.Command != "001" {
+		c.doCallbacks(line)
 		return fmt.Errorf("Unexpected server response: %s", line)
 	}
 
@@ -357,6 +367,10 @@ func (c *Client) doCallbacks(line string) {
 		c.doPartCallbacks(&msg)
 		break
 
+	case "NOTICE":
+		c.doNoticeCallbacks(&msg)
+		break
+
 	case "USERNOTICE":
 		msgid := msg.Tags["msg-id"]
 		if msgid == "resub" {
@@ -378,6 +392,20 @@ func (c *Client) doCallbacks(line string) {
 
 	}
 
+}
+
+func (c *Client) doNoticeCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.noticeCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		m := ""
+		if len(msg.Params) > 1 {
+			m = msg.Params[1]
+		}
+		cb(m)
+	}
 }
 
 func (c *Client) doResubCallbacks(msg *Message) {
