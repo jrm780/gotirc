@@ -44,7 +44,7 @@ type Client struct {
 	chatCallbacks         []func(channel string, tags map[string]string, msg string)
 	resubCallbacks        []func(channel string, tags map[string]string, msg string)
 	noticeCallbacks       []func(msg string)
-	subGiftcallbacks      []func(channel string, tags map[string]string, msg string)
+	subGiftCallbacks      []func(channel string, tags map[string]string, msg string)
 	subscriptionCallbacks []func(channel string, tags map[string]string, msg string)
 	cheerCallbacks        []func(channel string, tags map[string]string, msg string)
 	joinCallbacks         []func(channel, username string)
@@ -181,7 +181,7 @@ func (c *Client) OnSubscription(callback func(channel string, tags map[string]st
 func (c *Client) OnSubGift(callback func(channel string, tags map[string]string, msg string)) {
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
-	c.subGiftcallbacks = append(c.subGiftcallbacks, callback)
+	c.subGiftCallbacks = append(c.subGiftCallbacks, callback)
 }
 
 // OnCheer adds an event callback for when a user cheers bits in a channel
@@ -438,7 +438,7 @@ func (c *Client) doSubscriptionCallbacks(msg *Message) {
 
 func (c *Client) doSubGiftCallbacks(msg *Message) {
 	c.callbackMu.Lock()
-	callbacks := c.subGiftcallbacks
+	callbacks := c.subGiftCallbacks
 	c.callbackMu.Unlock()
 
 	for _, cb := range callbacks {
