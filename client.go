@@ -48,7 +48,7 @@ type Client struct {
 	cheerCallbacks        []func(channel string, tags map[string]string, msg string)
 	joinCallbacks         []func(channel, username string)
 	partCallbacks         []func(channel, username string)
-	whisperCallbacks      []func(username, msg string)
+	whisperCallbacks      []func(username string, tags map[string]string, msg string)
 }
 
 // NewClient returns a new Client
@@ -198,7 +198,7 @@ func (c *Client) OnPart(callback func(channel, username string)) {
 }
 
 // OnWhisper adds an event callback for when a user whispers to us
-func (c *Client) OnWhisper(callback func(username, msg string)) {
+func (c *Client) OnWhisper(callback func(username string, tags map[string]string, msg string)) {
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.whisperCallbacks = append(c.whisperCallbacks, callback)
@@ -479,6 +479,6 @@ func (c *Client) doWhisperCallbacks(msg *Message) {
 	c.callbackMu.Unlock()
 
 	for _, cb := range callbacks {
-		cb(msg.Prefix.Nick, msg.Params[1])
+		cb(msg.Prefix.Nick, msg.Tags, msg.Params[1])
 	}
 }
