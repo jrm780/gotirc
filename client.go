@@ -321,8 +321,11 @@ func (c *Client) startRecvLoop() error {
 
 func (c *Client) doCallbacks(line string) {
 	msg := NewMessage(line)
-	if msg.Command == "PRIVMSG" {
+
+	switch msg.Command {
+	case "PRIVMSG":
 		var m string
+
 		if len(msg.Params) > 1 {
 			m = msg.Params[1]
 		}
@@ -336,11 +339,17 @@ func (c *Client) doCallbacks(line string) {
 				c.doChatCallbacks(&msg)
 			}
 		}
-	} else if msg.Command == "JOIN" {
+		break
+
+	case "JOIN":
 		c.doJoinCallbacks(&msg)
-	} else if msg.Command == "PART" {
+		break
+
+	case "PART":
 		c.doPartCallbacks(&msg)
-	} else if msg.Command == "USERNOTICE" {
+		break
+
+	case "USERNOTICE":
 		msgid := msg.Tags["msg-id"]
 		if msgid == "resub" {
 			c.doResubCallbacks(&msg)
@@ -349,9 +358,14 @@ func (c *Client) doCallbacks(line string) {
 		} else if msgid == "subgift" {
 			c.doSubGiftCallbacks(&msg)
 		}
-	} else if msg.Command == "PING" {
+		break
+
+	case "PING":
 		c.send(fmt.Sprintf("PONG :%s", msg.Params[0]))
+		break
+
 	}
+
 }
 
 func (c *Client) doResubCallbacks(msg *Message) {
