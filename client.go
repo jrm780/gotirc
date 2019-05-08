@@ -44,6 +44,7 @@ type Client struct {
 	chatCallbacks         []func(channel string, tags map[string]string, msg string)
 	resubCallbacks        []func(channel string, tags map[string]string, msg string)
 	noticeCallbacks       []func(msg string)
+	roomStateCallbacks    []func(channel string, tags map[string]string)
 	subGiftCallbacks      []func(channel string, tags map[string]string, msg string)
 	subscriptionCallbacks []func(channel string, tags map[string]string, msg string)
 	cheerCallbacks        []func(channel string, tags map[string]string, msg string)
@@ -147,6 +148,12 @@ func (c *Client) OnAction(callback func(channel string, tags map[string]string, 
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.actionCallbacks = append(c.actionCallbacks, callback)
+}
+
+func (c *Client) OnRoomState(callback func(channel string, tags map[string]string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.roomStateCallbacks = append(c.roomStateCallbacks, callback)
 }
 
 // OnNotice adds an event callback for NOTICE server messages
@@ -374,6 +381,10 @@ func (c *Client) doCallbacks(line string) {
 		c.doNoticeCallbacks(&msg)
 		break
 
+	case "ROOMSTATE":
+		c.doRoomStateCallbacks(&msg)
+		break
+
 	case "USERNOTICE":
 		msgid := msg.Tags["msg-id"]
 		if msgid == "resub" {
@@ -395,6 +406,16 @@ func (c *Client) doCallbacks(line string) {
 
 	}
 
+}
+
+func (c *Client) doRoomStateCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.roomStateCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Tags)
+	}
 }
 
 func (c *Client) doNoticeCallbacks(msg *Message) {
