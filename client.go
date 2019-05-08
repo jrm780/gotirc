@@ -247,7 +247,10 @@ func (c *Client) authenticate(nick, pass string) error {
 		return fmt.Errorf("Unexpected server response: %s", line)
 	}
 
-	c.write(fmt.Sprintf("CAP REQ :%s\r\n", strings.Join(caps, " twitch.tv/")))
+	err = c.write(fmt.Sprintf("CAP REQ :%s\r\n", strings.Join(caps, " twitch.tv/")))
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
