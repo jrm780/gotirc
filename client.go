@@ -44,6 +44,7 @@ type Client struct {
 	chatCallbacks         []func(channel string, tags map[string]string, msg string)
 	resubCallbacks        []func(channel string, tags map[string]string, msg string)
 	noticeCallbacks       []func(msg string)
+	userStateCallbacks    []func(channel string, tags map[string]string)
 	roomStateCallbacks    []func(channel string, tags map[string]string)
 	subGiftCallbacks      []func(channel string, tags map[string]string, msg string)
 	subscriptionCallbacks []func(channel string, tags map[string]string, msg string)
@@ -148,6 +149,12 @@ func (c *Client) OnAction(callback func(channel string, tags map[string]string, 
 	c.callbackMu.Lock()
 	defer c.callbackMu.Unlock()
 	c.actionCallbacks = append(c.actionCallbacks, callback)
+}
+
+func (c *Client) OnUserState(callback func(channel string, tags map[string]string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
+	c.userStateCallbacks = append(c.userStateCallbacks, callback)
 }
 
 func (c *Client) OnRoomState(callback func(channel string, tags map[string]string)) {
@@ -381,6 +388,10 @@ func (c *Client) doCallbacks(line string) {
 		c.doNoticeCallbacks(&msg)
 		break
 
+	case "USERSTATE":
+		c.doUserStateCallbacks(&msg)
+		break
+
 	case "ROOMSTATE":
 		c.doRoomStateCallbacks(&msg)
 		break
@@ -406,6 +417,16 @@ func (c *Client) doCallbacks(line string) {
 
 	}
 
+}
+
+func (c *Client) doUserStateCallbacks(msg *Message) {
+	c.callbackMu.Lock()
+	callbacks := c.userStateCallbacks
+	c.callbackMu.Unlock()
+
+	for _, cb := range callbacks {
+		cb(msg.Params[0], msg.Tags)
+	}
 }
 
 func (c *Client) doRoomStateCallbacks(msg *Message) {
